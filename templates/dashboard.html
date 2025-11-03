@@ -1,0 +1,385 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="hero-section">
+        <h2>Check Your Email Tone</h2>
+        <p>Get instant feedback on whether your email sounds rude, formal, or friendly</p>
+    </div>
+
+    <div class="content-grid">
+        <!-- Email Input Section -->
+        <div class="card email-input-card">
+            <h3>Paste Email Content</h3>
+            <textarea id="emailInput" class="email-textarea" placeholder="Paste your email here...&#10;&#10;Example:&#10;Hi John,&#10;&#10;I hate to bother you, but your work has been terrible lately. We need to talk about your performance."></textarea>
+            <button id="analyzeBtn" class="btn-primary" onclick="analyzeEmail()">
+                <svg class="icon-btn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="11" cy="11" r="8"/>
+                    <path d="m21 21-4.35-4.35"/>
+                </svg>
+                Analyze Tone
+            </button>
+        </div>
+
+        <!-- Results Section -->
+        <div id="resultsSection" class="card results-card" style="display: none;">
+            <h3>Tone Analysis Results</h3>
+            
+            <div id="toneIndicator" class="tone-indicator">
+                <!-- Will be populated by JavaScript -->
+            </div>
+
+            <div id="toneScore" class="tone-score">
+                <!-- Will be populated by JavaScript -->
+            </div>
+
+            <div id="suggestionsSection" class="suggestions-section">
+                <h4>💡 Suggestions</h4>
+                <div id="suggestions"></div>
+            </div>
+
+            <div id="recommendationsSection" class="recommendations-section">
+                <h4>📝 Recommendations</h4>
+                <ul id="recommendations"></ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Fetch Emails Section -->
+    <div class="card fetch-emails-card">
+        <h3>Fetch Your Emails</h3>
+        <p>Connect to your Gmail account to analyze emails</p>
+        
+        <div id="loginForm" class="login-form">
+            <div class="form-group">
+                <label for="emailInputField">Gmail Address:</label>
+                <input type="email" id="emailInputField" class="form-input" placeholder="your.email@gmail.com">
+            </div>
+            <div class="form-group">
+                <label for="passwordInputField">App Password:</label>
+                <input type="password" id="passwordInputField" class="form-input" placeholder="Your Gmail App Password">
+                <small class="help-text">Generate an App Password from your Google Account</small>
+            </div>
+            <button class="btn-secondary" onclick="fetchEmails()">
+                <svg class="icon-btn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="23 4 23 10 17 10"/>
+                    <polyline points="1 20 1 14 7 14"/>
+                    <path d="M3.51 9a9 9 0 0114.85 3.36M20.49 15a9 9 0 01-14.85-3.36"/>
+                </svg>
+                Load Emails
+            </button>
+            <div class="info-box">
+                <strong>🔐 How to get App Password:</strong>
+                <ol>
+                    <li>Go to your <a href="https://myaccount.google.com/" target="_blank">Google Account</a></li>
+                    <li>Select "Security" → "2-Step Verification" (enable if not already)</li>
+                    <li>Go to "App passwords" and generate a new one for "Mail"</li>
+                    <li>Copy the 16-character password and paste it above</li>
+                </ol>
+            </div>
+        </div>
+        
+        <div id="emailsList" class="emails-list"></div>
+    </div>
+</div>
+
+<script>
+const API_URL = '/analyze_email';
+const FETCH_URL = '/fetch_emails';
+
+// Theme management
+function initTheme() {
+    const savedTheme = localStorage.getItem('theme') || 'dark';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+    updateThemeIcon(savedTheme);
+}
+
+function toggleTheme() {
+    const currentTheme = document.documentElement.getAttribute('data-theme');
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', newTheme);
+    localStorage.setItem('theme', newTheme);
+    updateThemeIcon(newTheme);
+}
+
+function updateThemeIcon(theme) {
+    const themeIcon = document.getElementById('themeIcon');
+    if (themeIcon) {
+        themeIcon.innerHTML = theme === 'dark' 
+            ? '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>'
+            : '<circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>';
+    }
+}
+
+// Initialize theme on page load
+document.addEventListener('DOMContentLoaded', initTheme);
+
+function showCachedResults(email) {
+    const resultsSection = document.getElementById('resultsSection');
+    resultsSection.style.display = 'block';
+    
+    const toneIndicator = document.getElementById('toneIndicator');
+    const tone = email.tone;
+    const colors = {
+        'rude': '#ff4757',
+        'formal': '#00d9ff',
+        'friendly': '#2ed573'
+    };
+    const bgColors = {
+        'rude': 'rgba(255, 71, 87, 0.15)',
+        'formal': 'rgba(0, 217, 255, 0.15)',
+        'friendly': 'rgba(46, 213, 115, 0.15)'
+    };
+    const emojis = {
+        'rude': '😠',
+        'formal': '👔',
+        'friendly': '😊'
+    };
+    
+    toneIndicator.innerHTML = `
+        <div class="tone-badge" style="background: ${bgColors[tone]}; border-color: ${colors[tone]}; box-shadow: 0 0 20px ${colors[tone]}40;">
+            <span class="tone-emoji">${emojis[tone]}</span>
+            <div>
+                <strong class="tone-name">${tone.charAt(0).toUpperCase() + tone.slice(1)}</strong>
+                <p class="tone-confidence">Confidence: ${(email.confidence * 100).toFixed(0)}%</p>
+            </div>
+        </div>
+    `;
+    
+    const suggestionsDiv = document.getElementById('suggestions');
+    suggestionsDiv.innerHTML = '<div class="loading-state"><svg class="rotating" style="width: 32px; height: 32px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" stroke-dasharray="32" stroke-dashoffset="32"><animate attributeName="stroke-dasharray" dur="2s" values="0 31.4;31.4 0;0 31.4" repeatCount="indefinite"/><animate attributeName="stroke-dashoffset" dur="2s" values="0;-31.4;-31.4" repeatCount="indefinite"/></circle></svg>Generating AI-powered suggestions...</div>';
+    
+    const recommendationsList = document.getElementById('recommendations');
+    recommendationsList.innerHTML = '';
+    
+    resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function analyzeEmail() {
+    const emailText = document.getElementById('emailInput').value.trim();
+    
+    if (!emailText) {
+        alert('Please enter email content to analyze');
+        return;
+    }
+
+    const analyzeBtn = document.getElementById('analyzeBtn');
+    const wasAnalyzing = analyzeBtn.disabled;
+    
+    if (!wasAnalyzing) {
+        analyzeBtn.disabled = true;
+        analyzeBtn.innerHTML = '<svg class="icon-btn rotating" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" stroke-dasharray="32" stroke-dashoffset="32"><animate attributeName="stroke-dasharray" dur="2s" values="0 31.4;31.4 0;0 31.4" repeatCount="indefinite"/><animate attributeName="stroke-dashoffset" dur="2s" values="0;-31.4;-31.4" repeatCount="indefinite"/></circle></svg>Analyzing...';
+    }
+
+    fetch(API_URL, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email_text: emailText })
+    })
+    .then(response => response.json())
+    .then(data => {
+        displayResults(data);
+        analyzeBtn.disabled = false;
+        analyzeBtn.innerHTML = '<svg class="icon-btn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>Analyze Tone';
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error analyzing email. Please try again.');
+        analyzeBtn.disabled = false;
+        analyzeBtn.innerHTML = '<svg class="icon-btn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>Analyze Tone';
+    });
+}
+
+function displayResults(data) {
+    const resultsSection = document.getElementById('resultsSection');
+    resultsSection.style.display = 'block';
+
+    const toneIndicator = document.getElementById('toneIndicator');
+    const tone = data.tone;
+    const colors = {
+        'rude': '#ff4757',
+        'formal': '#00d9ff',
+        'friendly': '#2ed573'
+    };
+    const bgColors = {
+        'rude': 'rgba(255, 71, 87, 0.15)',
+        'formal': 'rgba(0, 217, 255, 0.15)',
+        'friendly': 'rgba(46, 213, 115, 0.15)'
+    };
+    const emojis = {
+        'rude': '😠',
+        'formal': '👔',
+        'friendly': '😊'
+    };
+    
+    toneIndicator.innerHTML = `
+        <div class="tone-badge" style="background: ${bgColors[tone]}; border-color: ${colors[tone]}; box-shadow: 0 0 20px ${colors[tone]}40;">
+            <span class="tone-emoji">${emojis[tone]}</span>
+            <div>
+                <strong class="tone-name">${tone.charAt(0).toUpperCase() + tone.slice(1)}</strong>
+                <p class="tone-confidence">Confidence: ${(data.confidence * 100).toFixed(0)}%</p>
+            </div>
+        </div>
+    `;
+
+    if (data.suggestions && data.suggestions.length > 0) {
+        const suggestionsDiv = document.getElementById('suggestions');
+        suggestionsDiv.innerHTML = '';
+        data.suggestions.forEach(sugg => {
+            const suggCard = document.createElement('div');
+            suggCard.className = 'suggestion-card';
+            const escapeHtml = (text) => {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML.replace(/\n/g, '<br>');
+            };
+            
+            // Check if this is an AI-powered suggestion
+            const isAIPowered = sugg.change && sugg.change.includes('AI-powered');
+            const labelEmoji = isAIPowered ? '🤖 ' : '📝 ';
+            
+            suggCard.innerHTML = `
+                <div class="suggestion-header">${labelEmoji}${escapeHtml(sugg.change || '')}</div>
+                <div class="suggestion-original">
+                    <strong>Original:</strong>
+                    <p>${escapeHtml(sugg.original || '')}</p>
+                </div>
+                <div class="suggestion-rewritten">
+                    <strong>Polite Version:</strong>
+                    <p>${escapeHtml(sugg.rewritten || '')}</p>
+                </div>
+            `;
+            suggestionsDiv.appendChild(suggCard);
+        });
+    }
+
+    const recommendationsList = document.getElementById('recommendations');
+    recommendationsList.innerHTML = '';
+    data.recommendations.forEach(rec => {
+        const li = document.createElement('li');
+        li.textContent = rec;
+        recommendationsList.appendChild(li);
+    });
+
+    resultsSection.scrollIntoView({ behavior: 'smooth' });
+}
+
+function fetchEmails() {
+    const email = document.getElementById('emailInputField').value.trim();
+    const password = document.getElementById('passwordInputField').value.trim();
+    
+    if (!email || !password) {
+        alert('Please enter your Gmail address and App Password');
+        return;
+    }
+    
+    const emailsList = document.getElementById('emailsList');
+    emailsList.innerHTML = '<div class="loading">Connecting to Gmail and loading emails...</div>';
+
+    fetch(FETCH_URL, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email: email, password: password, limit: 20 })
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                emailsList.innerHTML = `<div class="error">${data.error}</div>`;
+            } else {
+                displayEmails(data.emails);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            emailsList.innerHTML = '<div class="error">Error loading emails. Please try again.</div>';
+        });
+}
+
+function displayEmails(emails) {
+    const emailsList = document.getElementById('emailsList');
+    
+    if (!emails || emails.length === 0) {
+        emailsList.innerHTML = '<div class="info">No emails found.</div>';
+        return;
+    }
+
+    emailsList.innerHTML = '<h4>Your Recent Emails</h4>';
+    
+    emails.forEach(email => {
+        const emailCard = document.createElement('div');
+        emailCard.className = 'email-card';
+        
+        const toneColors = {
+            'rude': '#ff4757',
+            'formal': '#00d9ff',
+            'friendly': '#2ed573'
+        };
+        const toneBgColors = {
+            'rude': 'rgba(255, 71, 87, 0.2)',
+            'formal': 'rgba(0, 217, 255, 0.2)',
+            'friendly': 'rgba(46, 213, 115, 0.2)'
+        };
+        
+        emailCard.innerHTML = `
+            <div class="email-header">
+                <div>
+                    <strong style="color: var(--text-primary);">${email.subject}</strong>
+                    <p class="email-sender">From: ${email.sender}</p>
+                </div>
+                <span class="email-tone-badge" style="background: ${toneBgColors[email.tone]}; color: ${toneColors[email.tone]}; border: 1px solid ${toneColors[email.tone]}40;">
+                    ${email.tone}
+                </span>
+            </div>
+            <p class="email-preview">${email.body}</p>
+        `;
+        
+        emailCard.addEventListener('click', () => {
+            document.getElementById('emailInput').value = email.full_body;
+            
+            if (email.tone && email.confidence !== undefined) {
+                showCachedResults(email);
+            }
+            
+            analyzeEmail();
+        });
+        
+        emailsList.appendChild(emailCard);
+    });
+}
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.ctrlKey && document.getElementById('emailInput') === document.activeElement) {
+        analyzeEmail();
+    }
+});
+</script>
+
+<style>
+.rotating {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.suggestion-header {
+    font-size: 0.9rem;
+    color: var(--accent-cyan);
+    margin-bottom: 1rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.suggestion-card {
+    position: relative;
+}
+</style>
+{% endblock %}
